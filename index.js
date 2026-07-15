@@ -8,6 +8,7 @@ import makeWASocket, {
 import { createClient } from '@supabase/supabase-js';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode';
 import { existsSync, mkdirSync } from 'fs';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -133,9 +134,10 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n📱 Scan this QR code with WhatsApp on your phone:');
-      console.log('   (WhatsApp → Linked Devices → Link a Device)\n');
+      currentQR = qr;
       qrcode.generate(qr, { small: true });
+      console.log('\n📱 QR ready! Open this URL on your phone or computer to scan:');
+      console.log('   https://sailfish-whatsapp-bot.onrender.com/qr\n');
     }
 
     if (connection === 'close') {
@@ -150,6 +152,7 @@ async function startBot() {
     }
 
     if (connection === 'open') {
+      currentQR = null;
       console.log('✅ WhatsApp connected!\n');
       console.log('📡 Listening for messages across all chats...');
       console.log('   (Only relevant Sailfish chats will be saved to Supabase)\n');
@@ -209,13 +212,41 @@ async function startBot() {
   });
 }
 
-// ── HEALTH CHECK SERVER (required by Render to keep the service alive) ────────
+// ── HTTP SERVER — health check + QR code page ─────────────────────────────────
 import { createServer } from 'http';
-createServer((req, res) => {
+let currentQR = null; // set when QR is ready
+
+createServer(async (req, res) => {
+  if (req.url === '/qr') {
+    if (!currentQR) {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+        <h2>🐟 Sailfish WhatsApp Bot</h2>
+        <p>No QR code yet — bot may already be connected, or still starting up.</p>
+        <p><a href="/qr">Refresh</a></p>
+      </body></html>`);
+      return;
+    }
+    try {
+      const dataUrl = await QRCode.toDataURL(currentQR, { width: 300, margin: 2 });
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#f9f9f9">
+        <h2>🐟 Sailfish WhatsApp Bot</h2>
+        <p>Scan with WhatsApp → Linked Devices → Link a Device</p>
+        <img src="${dataUrl}" style="border:4px solid #25D366;border-radius:12px;margin:20px auto;display:block"/>
+        <p style="color:#888;font-size:13px">QR expires in ~60 seconds — refresh page if it doesn't scan</p>
+        <p><a href="/qr">Refresh QR</a></p>
+      </body></html>`);
+    } catch (e) {
+      res.writeHead(500); res.end('QR generation error: ' + e.message);
+    }
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', service: 'sailfish-whatsapp-bot', time: new Date().toISOString() }));
+  res.end(JSON.stringify({ status: 'ok', service: 'sailfish-whatsapp-bot', qrReady: !!currentQR, time: new Date().toISOString() }));
 }).listen(process.env.PORT || 3000, () => {
   console.log(`[Health] Server on port ${process.env.PORT || 3000}`);
+  console.log(`[QR] Open https://sailfish-whatsapp-bot.onrender.com/qr to scan QR code`);
 });
 
 startBot();
