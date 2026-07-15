@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: sailfish-whatsapp-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        value: https://srsukpjjnatjchskmxfk.supabase.co
+      - key: SUPABASE_KEY
+        sync: false  # set this manually in Render dashboard (use service role key)
+      - key: AUTH_DIR
+        value: /data/auth_state
+    disk:
+      name: auth-storage
+      mountPath: /data
+      sizeGB: 1
