@@ -273,36 +273,42 @@ async function learnGroupJid(chatName, chatJid) {
 // ── FORMAT DAILY DRAFT MESSAGE ────────────────────────────────────────────────
 function formatDraftMessage(club, tasks) {
   const today = new Date().toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' });
-  const completed = tasks.filter(t => t.status === 'completed');
-  const pending   = tasks.filter(t => t.status === 'pending');
-  const overdue   = tasks.filter(t => t.status === 'overdue');
 
-  let msg = `🐟 *Sailfish Daily Ops — ${today}*\n`;
-  msg += `📍 *${club}*\n\n`;
-
-  if (completed.length) {
-    msg += `✅ *Tasks Completed:*\n`;
-    completed.forEach(t => msg += `• ${t.staff_name} — ${t.task_text}\n`);
-    msg += '\n';
+  // Group tasks by staff name
+  const staffMap = {};
+  for (const t of tasks) {
+    if (!staffMap[t.staff_name]) staffMap[t.staff_name] = { done: [], pending: [], overdue: [] };
+    if (t.status === 'completed') staffMap[t.staff_name].done.push(t.task_text);
+    else if (t.status === 'pending') staffMap[t.staff_name].pending.push(t.task_text);
+    else if (t.status === 'overdue') staffMap[t.staff_name].overdue.push(t.task_text);
   }
 
-  if (pending.length) {
-    msg += `⏳ *Pending Tasks:*\n`;
-    pending.forEach(t => msg += `• ${t.staff_name} — ${t.task_text}\n`);
-    msg += '\n';
+  let msg = `🐟 *Sailfish Daily Ops — ${today}*\n📍 *${club}*\n\n`;
+
+  if (!Object.keys(staffMap).length) {
+    msg += `_No tasks recorded yet._\n`;
+  } else {
+    for (const [name, t] of Object.entries(staffMap)) {
+      const doneCount  = t.done.length;
+      const pendCount  = t.pending.length;
+      const overCount  = t.overdue.length;
+
+      // Summarise completed tasks in one short phrase
+      const doneSummary = doneCount === 0 ? '—'
+        : doneCount === 1 ? t.done[0].slice(0, 50)
+        : `${doneCount} tasks completed`;
+
+      const flags = [];
+      if (pendCount)  flags.push(`${pendCount} pending`);
+      if (overCount)  flags.push(`${overCount} overdue ⚠️`);
+      const flagStr = flags.length ? ` _(${flags.join(', ')})_` : '';
+
+      const icon = overCount ? '🔴' : pendCount ? '🟡' : doneCount ? '✅' : '⚪';
+      msg += `${icon} *${name}* — ${doneSummary}${flagStr}\n`;
+    }
   }
 
-  if (overdue.length) {
-    msg += `🔴 *Overdue:*\n`;
-    overdue.forEach(t => msg += `• ${t.staff_name} — ${t.task_text}\n`);
-    msg += '\n';
-  }
-
-  if (!completed.length && !pending.length && !overdue.length) {
-    msg += `_No tasks recorded yet. Run dashboard analysis to update._\n`;
-  }
-
-  msg += `\n_Sailfish Ops Dashboard · ${new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' })}_`;
+  msg += `\n_${new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' })} · Sailfish Ops_`;
   return msg;
 }
 
