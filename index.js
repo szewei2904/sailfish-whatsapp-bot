@@ -286,37 +286,42 @@ function formatDraftMessage(club, tasks) {
   // Overdue alert section at top
   const overdueEntries = Object.entries(staffMap).filter(([,t]) => t.overdue.length);
 
+  const pendingEntries = Object.entries(staffMap).filter(([,t]) => t.pending.length);
+  const doneEntries    = Object.entries(staffMap).filter(([,t]) => t.done.length);
+
   let msg = `🐟 *Sailfish Daily Ops — ${today}*\n📍 *${club}*\n`;
+
+  // OVERDUE JOBS
   if (overdueEntries.length) {
     msg += `\n🔴 *OVERDUE JOBS:*\n`;
     for (const [name, t] of overdueEntries) {
       for (const o of t.overdue) {
-        msg += `  • ${name} — ${o.slice(0, 60)}\n`;
+        msg += `  • ${name} — ${o}\n`;
       }
     }
   }
-  msg += '\n';
 
-  if (!Object.keys(staffMap).length) {
-    msg += `_No tasks recorded yet._\n`;
-  } else {
-    for (const [name, t] of Object.entries(staffMap)) {
-      const doneCount = t.done.length;
-      const doneBrief = doneCount === 0 ? 'No update'
-        : doneCount === 1 ? t.done[0].slice(0, 40)
-        : `${doneCount} jobs done`;
-
-      msg += `• *${name}* — ${doneBrief}\n`;
-
-      // List each pending task specifically
+  // PENDING JOBS
+  if (pendingEntries.length) {
+    msg += `\n⏳ *PENDING JOBS:*\n`;
+    for (const [name, t] of pendingEntries) {
       for (const p of t.pending) {
-        msg += `  ⏳ ${p.slice(0, 60)}\n`;
-      }
-      // List overdue tasks
-      for (const o of t.overdue) {
-        msg += `  🔴 ${o.slice(0, 60)}\n`;
+        msg += `  • ${name} — ${p}\n`;
       }
     }
+  }
+
+  // JOBS DONE (brief — just count or single short line)
+  if (doneEntries.length) {
+    msg += `\n✅ *JOBS DONE:*\n`;
+    for (const [name, t] of doneEntries) {
+      const brief = t.done.length === 1 ? t.done[0].slice(0, 50) : `${t.done.length} jobs completed`;
+      msg += `  • ${name} — ${brief}\n`;
+    }
+  }
+
+  if (!overdueEntries.length && !pendingEntries.length && !doneEntries.length) {
+    msg += `\n_No tasks recorded yet._\n`;
   }
 
   msg += `\n_${new Date().toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' })} · Sailfish Ops_`;
