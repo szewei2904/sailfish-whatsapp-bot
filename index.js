@@ -283,12 +283,17 @@ function formatDraftMessage(club, tasks) {
     else if (t.status === 'overdue') staffMap[t.staff_name].overdue.push(t.task_text);
   }
 
-  // Overdue alert on first line
-  const overdueStaff = Object.entries(staffMap).filter(([,t]) => t.overdue.length).map(([n]) => n);
+  // Overdue alert section at top
+  const overdueEntries = Object.entries(staffMap).filter(([,t]) => t.overdue.length);
 
   let msg = `🐟 *Sailfish Daily Ops — ${today}*\n📍 *${club}*\n`;
-  if (overdueStaff.length) {
-    msg += `⚠️ *OVERDUE: ${overdueStaff.join(', ')}*\n`;
+  if (overdueEntries.length) {
+    msg += `\n🔴 *OVERDUE JOBS:*\n`;
+    for (const [name, t] of overdueEntries) {
+      for (const o of t.overdue) {
+        msg += `  • ${name} — ${o.slice(0, 60)}\n`;
+      }
+    }
   }
   msg += '\n';
 
