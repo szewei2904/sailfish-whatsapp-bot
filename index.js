@@ -283,28 +283,34 @@ function formatDraftMessage(club, tasks) {
     else if (t.status === 'overdue') staffMap[t.staff_name].overdue.push(t.task_text);
   }
 
-  let msg = `🐟 *Sailfish Daily Ops — ${today}*\n📍 *${club}*\n\n`;
+  // Overdue alert on first line
+  const overdueStaff = Object.entries(staffMap).filter(([,t]) => t.overdue.length).map(([n]) => n);
+
+  let msg = `🐟 *Sailfish Daily Ops — ${today}*\n📍 *${club}*\n`;
+  if (overdueStaff.length) {
+    msg += `⚠️ *OVERDUE: ${overdueStaff.join(', ')}*\n`;
+  }
+  msg += '\n';
 
   if (!Object.keys(staffMap).length) {
     msg += `_No tasks recorded yet._\n`;
   } else {
     for (const [name, t] of Object.entries(staffMap)) {
-      const doneCount  = t.done.length;
-      const pendCount  = t.pending.length;
-      const overCount  = t.overdue.length;
+      const doneCount = t.done.length;
+      const doneBrief = doneCount === 0 ? 'No update'
+        : doneCount === 1 ? t.done[0].slice(0, 40)
+        : `${doneCount} jobs done`;
 
-      // Summarise completed tasks in one short phrase
-      const doneSummary = doneCount === 0 ? '—'
-        : doneCount === 1 ? t.done[0].slice(0, 50)
-        : `${doneCount} tasks completed`;
+      msg += `• *${name}* — ${doneBrief}\n`;
 
-      const flags = [];
-      if (pendCount)  flags.push(`${pendCount} pending`);
-      if (overCount)  flags.push(`${overCount} overdue ⚠️`);
-      const flagStr = flags.length ? ` _(${flags.join(', ')})_` : '';
-
-      const icon = overCount ? '🔴' : pendCount ? '🟡' : doneCount ? '✅' : '⚪';
-      msg += `${icon} *${name}* — ${doneSummary}${flagStr}\n`;
+      // List each pending task specifically
+      for (const p of t.pending) {
+        msg += `  ⏳ ${p.slice(0, 60)}\n`;
+      }
+      // List overdue tasks
+      for (const o of t.overdue) {
+        msg += `  🔴 ${o.slice(0, 60)}\n`;
+      }
     }
   }
 
