@@ -311,12 +311,13 @@ function formatDraftMessage(club, tasks) {
     }
   }
 
-  // JOBS DONE (brief — just count or single short line)
+  // JOBS DONE (specific but short — each task on its own line)
   if (doneEntries.length) {
     msg += `\n✅ *JOBS DONE:*\n`;
     for (const [name, t] of doneEntries) {
-      const brief = t.done.length === 1 ? t.done[0].slice(0, 50) : `${t.done.length} jobs completed`;
-      msg += `  • ${name} — ${brief}\n`;
+      for (const d of t.done) {
+        msg += `  • ${name} — ${d.slice(0, 60)}\n`;
+      }
     }
   }
 
