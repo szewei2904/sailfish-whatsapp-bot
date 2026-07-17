@@ -256,7 +256,7 @@ createServer(async (req, res) => {
 // ── OPERATION GROUPS ──────────────────────────────────────────────────────────
 const OPERATION_GROUPS = [
   { name: 'SAC & Sailfish Operation Club',      jid: '120363415273290416@g.us', club: 'Setia Alam Club' },
-  { name: 'Canopy & Sailfish Operations Club',  jid: '120363418448920703@g.us', club: 'Canopy Club' },
+  { name: 'Canopy & Sailfish Operations Club',  jid: '120363417595128134@g.us', club: 'Canopy Club' },
   { name: 'Club 360 x Sailfish Operation',      jid: null,                      club: 'Club 360' }, // JID added when first message arrives
 ];
 
@@ -421,3 +421,65 @@ cron.schedule('0 0 1 * *', async () => {
 }, { timezone: 'Asia/Kuala_Lumpur' });
 
 startBot();
+
+ // ── 10PM NIGHTLY ANALYSIS ─────────────────────────────────────────────────────
+cron.schedule('0 22 * * *', async () => {
+  console.log('[Cron] 10pm — running nightly AI analysis…');
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_KEY) { console.error('[Cron] No ANTHROPIC_API_KEY — skipping analysis'); return; }
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: msgs, error: msgErr } = await supabase
+    .from('messages').select('*').gte('timestamp', since).order('timestamp');
+  if (msgErr || !msgs?.length) { console.log('[Cron] No messages to analyse'); return; }
+  const { data: staffRows } = await supabase
+    .from('staff').select('name, role, branches(name)').eq('status', 'active');
+  const roster = (staffRows||[]).map(s =>
+    `- ${s.name} | ${s.role||'staff'} | ${s.branches?.name||'Unknown'}`).join('\n');
+  const rawText = msgs.map(m =>
+    `[${new Date(m.timestamp).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'})}] ${m.chat_name} — ${m.sender_name}: ${m.message_text||m.message_type}`
+  ).join('\n');
+  const prompt = `You are an operations assistant for Sailfish Sdn Bhd swim academies.\n\nSTAFF ROSTER:\n${roster}\n\nRAW WHATSAPP MESSAGES:\n${rawText.length > 40000 ? rawText.slice(-40000) + '\n[Older messages truncated]' : rawText}\n\nYOUR TASK: For each staff member build their profile from ALL messages.\n- completedTasks: things reported done ("done","selesai","✅","siap","completed") — return as [{task,date}] where date is "DD MMM"\n- pendingTasks: things not yet done or outstanding\n- overdueTasks: things due but not done\n- attendance: 7-day boolean array [Mon-Sun] — check Daily Attendance Reports first: staff listed under any shift (AM/Middle/PM) = true, listed under AL/MC/Off Day/UL = false\n- lastActive: most recent message timestamp\n\nReturn ONLY valid JSON, no markdown:\n{"staff":[{"name":"Abin","club":"Setia Alam Club","role":"technician","completedTasks":[{"task":"example","date":"15 Jul"}],"pendingTasks":[],"overdueTasks":[],"attendance":[true,true,true,false,true,true,true],"lastActive":"17 Jul 09:05","notes":""}]}`;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
+    });
+    const aiData = await res.json();
+    if (aiData.error) throw new Error(aiData.error.message);
+    const raw = aiData.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+    const parsed = JSON.parse(raw.slice(start, end + 1));
+    const today = new Date().toISOString().split('T')[0];
+    const monthYear = today.slice(0, 7);
+    for (const s of parsed.staff || []) {
+      for (const t of s.completedTasks || []) {
+        await supabase.from('ops_tasks').upsert(
+          { staff_name: s.name, club: s.club, task_text: t.task||t, status: 'completed', month_year: monthYear },
+          { onConflict: 'staff_name,club,task_text' });
+      }
+      for (const t of s.pendingTasks || []) {
+        await supabase.from('ops_tasks').upsert(
+          { staff_name: s.name, club: s.club, task_text: t, status: 'pending', month_year: monthYear },
+          { onConflict: 'staff_name,club,task_text' });
+      }
+      for (const t of s.overdueTasks || []) {
+        await supabase.from('ops_tasks').upsert(
+          { staff_name: s.name, club: s.club, task_text: t, status: 'overdue', month_year: monthYear },
+          { onConflict: 'staff_name,club,task_text' });
+      }
+      const att = s.attendance || [];
+      for (let i = 0; i < att.length; i++) {
+        if (att[i] === null || att[i] === undefined) continue;
+        const d = new Date(); d.setDate(d.getDate() - (att.length - 1 - i));
+        const dateStr = d.toISOString().split('T')[0];
+        await supabase.from('staff_attendance').upsert(
+          { staff_name: s.name, club: s.club, date: dateStr, present: !!att[i], month_year: dateStr.slice(0,7) },
+          { onConflict: 'staff_name,club,date' });
+      }
+    }
+    console.log(`[Cron] Nightly analysis complete — ${parsed.staff?.length||0} staff processed`);
+  } catch (e) {
+    console.error('[Cron] Nightly analysis failed:', e.message);
+  }
+}, { timezone: 'Asia/Kuala_Lumpur' });
