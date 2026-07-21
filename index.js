@@ -358,7 +358,7 @@ cron.schedule('0 0 * * *', async () => {
       .select('id')
       .eq('group_jid', group.jid)
       .eq('draft_date', today)
-      .eq('status', 'pending')
+      .eq('status', 'approved')
       .maybeSingle();
 
     if (existing) {
@@ -371,7 +371,7 @@ cron.schedule('0 0 * * *', async () => {
         group_jid:    group.jid,
         club:         group.club,
         message_text: message,
-        status:       'pending',
+        status:        'approved',
         draft_date:   today,
       });
     }
