@@ -257,7 +257,7 @@ createServer(async (req, res) => {
 const OPERATION_GROUPS = [
   { name: 'SAC & Sailfish Operation Club',      jid: '120363415273290416@g.us', club: 'Setia Alam Club' },
   { name: 'Canopy & Sailfish Operations Club',  jid: '120363417595128134@g.us', club: 'Canopy Club' },
-  { name: 'Club 360 x Sailfish Operation',      jid: null,                      club: 'Club 360' }, // JID added when first message arrives
+  { name: 'Club 360 x Sailfish Operation',    jid: '120363402935729157@g.us',      club: 'Club 360' }, // JID added when first message arrives
 ];
 
 // ── AUTO-LEARN GROUP JIDs ─────────────────────────────────────────────────────
