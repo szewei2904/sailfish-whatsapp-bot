@@ -331,7 +331,7 @@ function formatDraftMessage(club, tasks) {
 
 // ── DAILY 8AM DRAFT ──────────────────────────────────────────────────────────
 // Runs at 8:00am Malaysia time (UTC+8 = 00:00 UTC)
-cron.schedule('0 0 * * *', async () => {
+cron.schedule('0 8 * * *', async () => {
   console.log('[Cron] 8am — generating daily group drafts…');
   const today = new Date().toISOString().split('T')[0];
 
