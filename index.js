@@ -404,6 +404,61 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
+// ── JIBBLE ATTENDANCE SYNC ───────────────────────────────────────────────────
+async function syncJibbleAttendance() {
+  const clientId = process.env.JIBBLE_CLIENT_ID;
+  const clientSecret = process.env.JIBBLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) { console.log('[Jibble] No credentials — skipping'); return; }
+  try {
+    const tokenRes = await fetch('https://identity.prod.jibble.io/connect/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}&scope=jibble_api_v2`
+    });
+    const tokenData = await tokenRes.json();
+    const token = tokenData.access_token;
+    if (!token) { console.error('[Jibble] Token failed:', JSON.stringify(tokenData)); return; }
+    const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));
+    const dateStr = today.toISOString().split('T')[0];
+    const attRes = await fetch(`https://time-attendance.prod.jibble.io/v1/Attendance?date=${dateStr}&pageSize=200`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const attData = await attRes.json();
+    const records = attData.value || attData.data || attData || [];
+    if (!Array.isArray(records) || !records.length) { console.log('[Jibble] No attendance records for', dateStr); return; }
+    const { data: staffRows } = await supabase.from('staff').select('name, branches(name)').eq('status', 'active');
+    const staffMap = {};
+    for (const s of staffRows || []) staffMap[s.name.toLowerCase()] = s.branches?.name || 'Unknown';
+    let saved = 0;
+    for (const r of records) {
+      const personName = r.personName || r.name || r.person?.name || '';
+      const clubName = staffMap[personName.toLowerCase()];
+      if (!clubName || clubName === 'Unknown') continue;
+      const clockIn = r.startTime || r.clockIn || r.firstIn || null;
+      const clockOut = r.endTime || r.clockOut || r.lastOut || null;
+      const hours = r.totalHours || r.workedHours || (clockIn && clockOut ?
+        (new Date(clockOut) - new Date(clockIn)) / 3600000 : null);
+      await supabase.from('staff_attendance').upsert({
+        staff_name: personName, club: clubName, date: dateStr, present: true,
+        check_in_time: clockIn ? new Date(clockIn).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : null,
+        check_out_time: clockOut ? new Date(clockOut).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : null,
+        hours_worked: hours ? Math.round(hours * 100) / 100 : null,
+        month_year: dateStr.slice(0, 7), source: 'jibble'
+      }, { onConflict: 'staff_name,club,date' });
+      saved++;
+    }
+    console.log(`[Jibble] Synced ${saved} attendance records for ${dateStr}`);
+  } catch (e) {
+    console.error('[Jibble] Sync error:', e.message);
+  }
+}
+
+// Run Jibble sync daily at 9:55pm MYT (before 10pm dashboard analysis)
+cron.schedule('55 21 * * *', async () => {
+  console.log('[Cron] 9:55pm — syncing Jibble attendance…');
+  await syncJibbleAttendance();
+}, { timezone: 'Asia/Kuala_Lumpur' });
+
 // ── MONTHLY RESET — 1st of month at midnight ──────────────────────────────────
 cron.schedule('0 0 1 * *', async () => {
   const lastMonth = new Date();
