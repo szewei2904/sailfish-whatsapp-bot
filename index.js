@@ -500,7 +500,30 @@ cron.schedule('0 0 1 * *', async () => {
   else console.log(`[Cron] Monthly reset — removed completed tasks from ${monthYear}`);
 }, { timezone: 'Asia/Kuala_Lumpur' });
 
-startBot();
+// Graceful shutdown: disconnect WhatsApp cleanly so new Render deploy can connect
+process.on('SIGTERM', async () => {
+  console.log('[Shutdown] SIGTERM received — disconnecting WhatsApp…');
+  try {
+    if (activeSock) await activeSock.end(undefined);
+  } catch {}
+  process.exit(0);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Fatal] Uncaught exception:', err.message);
+  // Don't exit — keep HTTP server alive for health checks
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Fatal] Unhandled rejection:', reason);
+  // Don't exit — keep HTTP server alive for health checks
+});
+
+startBot().catch(err => {
+  console.error('[Bot] startBot failed:', err.message);
+  // Retry after delay — don't crash the process
+  setTimeout(() => startBot().catch(console.error), 10000);
+});
 
  // ── 10PM NIGHTLY ANALYSIS ─────────────────────────────────────────────────────
 cron.schedule('0 22 * * *', async () => {
