@@ -10,7 +10,7 @@ services:
       - key: SUPABASE_KEY
         sync: false  # set this manually in Render dashboard (use service role key)
       - key: AUTH_DIR
-        value: /data/auth_state
+        value: /data
     disk:
       name: auth-storage
       mountPath: /data
