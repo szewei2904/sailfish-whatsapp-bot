@@ -218,6 +218,7 @@ async function startBot() {
 
 // ── HTTP SERVER — health check + QR code page ─────────────────────────────────
 import { createServer } from 'http';
+import { rmSync } from 'fs';
 let currentQR = null; // set when QR is ready
 
 createServer(async (req, res) => {
@@ -243,6 +244,25 @@ createServer(async (req, res) => {
       </body></html>`);
     } catch (e) {
       res.writeHead(500); res.end('QR generation error: ' + e.message);
+    }
+    return;
+  }
+  // Clear auth state and force new QR (protected by secret token)
+  if (req.url === '/clear-auth?token=sailfish2024') {
+    try {
+      if (activeSock) { try { await activeSock.end(undefined); } catch {} activeSock = null; }
+      currentQR = null;
+      rmSync(AUTH_DIR, { recursive: true, force: true });
+      mkdirSync(AUTH_DIR, { recursive: true });
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
+        <h2>🐟 Auth cleared!</h2>
+        <p>Session wiped. Bot is reconnecting...</p>
+        <p><a href="/qr">Go to QR page</a> (wait ~10 seconds first)</p>
+      </body></html>`);
+      setTimeout(() => startBot().catch(console.error), 2000);
+    } catch (e) {
+      res.writeHead(500); res.end('Error: ' + e.message);
     }
     return;
   }
