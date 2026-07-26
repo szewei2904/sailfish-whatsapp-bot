@@ -413,37 +413,62 @@ async function syncJibbleAttendance() {
     const tokenRes = await fetch('https://identity.prod.jibble.io/connect/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}&scope=jibble_api_v2`
+      body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`
     });
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
     if (!token) { console.error('[Jibble] Token failed:', JSON.stringify(tokenData)); return; }
+
     const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));
     const dateStr = today.toISOString().split('T')[0];
-    const attRes = await fetch(`https://time-attendance.prod.jibble.io/v1/Attendance?date=${dateStr}&pageSize=200`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const attData = await attRes.json();
-    const records = attData.value || attData.data || attData || [];
-    if (!Array.isArray(records) || !records.length) { console.log('[Jibble] No attendance records for', dateStr); return; }
+    const dayStart = `${dateStr}T00:00:00Z`;
+    const dayEnd   = `${dateStr}T23:59:59Z`;
+
+    // Fetch clock-in/out history events for today using OData History endpoint
+    const histUrl = `https://time-attendance.prod.jibble.io/v1/History?$filter=entityDate ge ${dayStart} and entityDate le ${dayEnd} and entityType eq 'TimeEntry'&$top=500`;
+    const histRes = await fetch(encodeURI(histUrl), { headers: { 'Authorization': `Bearer ${token}` } });
+    const histData = await histRes.json();
+    const history = histData.value || [];
+
+    // Fetch person list to map personId → name
+    const peopleRes = await fetch('https://workspace.prod.jibble.io/v1/ManagedPeople', { headers: { 'Authorization': `Bearer ${token}` } });
+    const peopleData = await peopleRes.json();
+    const personMap = {};
+    for (const p of (peopleData.value || [])) personMap[p.id] = p.preferredName || p.fullName;
+
+    // Load Supabase staff for club lookup
     const { data: staffRows } = await supabase.from('staff').select('name, branches(name)').eq('status', 'active');
     const staffMap = {};
     for (const s of staffRows || []) staffMap[s.name.toLowerCase()] = s.branches?.name || 'Unknown';
+
+    // Group by personId, collect first-In and last-Out
+    const dayMap = {};
+    for (const h of history) {
+      let entry;
+      try { entry = JSON.parse(h.entity); } catch { continue; }
+      if (!entry.time || !entry.type) continue;
+      const key = h.personId;
+      if (!dayMap[key]) dayMap[key] = { personId: h.personId, ins: [], outs: [] };
+      if (entry.type === 'In')  dayMap[key].ins.push(new Date(entry.time));
+      if (entry.type === 'Out') dayMap[key].outs.push(new Date(entry.time));
+    }
+
+    const fmt = (dt) => dt ? dt.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : null;
     let saved = 0;
-    for (const r of records) {
-      const personName = r.personName || r.name || r.person?.name || '';
-      const clubName = staffMap[personName.toLowerCase()];
+    for (const { personId, ins, outs } of Object.values(dayMap)) {
+      const jibbleName = personMap[personId];
+      if (!jibbleName) continue;
+      const clubName = staffMap[jibbleName.toLowerCase()];
       if (!clubName || clubName === 'Unknown') continue;
-      const clockIn = r.startTime || r.clockIn || r.firstIn || null;
-      const clockOut = r.endTime || r.clockOut || r.lastOut || null;
-      const hours = r.totalHours || r.workedHours || (clockIn && clockOut ?
-        (new Date(clockOut) - new Date(clockIn)) / 3600000 : null);
+      ins.sort((a, b) => a - b);
+      outs.sort((a, b) => a - b);
+      const firstIn  = ins[0]  || null;
+      const lastOut  = outs[outs.length - 1] || null;
+      const hoursWorked = firstIn && lastOut ? Math.round(((lastOut - firstIn) / 3600000) * 100) / 100 : null;
       await supabase.from('staff_attendance').upsert({
-        staff_name: personName, club: clubName, date: dateStr, present: true,
-        check_in_time: clockIn ? new Date(clockIn).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : null,
-        check_out_time: clockOut ? new Date(clockOut).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }) : null,
-        hours_worked: hours ? Math.round(hours * 100) / 100 : null,
-        month_year: dateStr.slice(0, 7), source: 'jibble'
+        staff_name: jibbleName, club: clubName, date: dateStr, present: true,
+        check_in_time: fmt(firstIn), check_out_time: fmt(lastOut),
+        hours_worked: hoursWorked, month_year: dateStr.slice(0, 7), source: 'jibble'
       }, { onConflict: 'staff_name,club,date' });
       saved++;
     }
