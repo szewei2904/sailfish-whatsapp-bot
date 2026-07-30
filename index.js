@@ -247,6 +247,13 @@ createServer(async (req, res) => {
     }
     return;
   }
+  // On-demand Jibble sync (called by dashboard)
+  if (req.url === '/sync-jibble?token=sailfish2024') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Jibble sync started' }));
+    syncJibbleAttendance().catch(console.error);
+    return;
+  }
   // Clear auth state and force new QR (protected by secret token)
   if (req.url === '/clear-auth?token=sailfish2024') {
     try {
@@ -591,19 +598,7 @@ cron.schedule('0 22 * * *', async () => {
           { staff_name: s.name, club: s.club, task_text: t, status: 'overdue', month_year: monthYear },
           { onConflict: 'staff_name,club,task_text' });
       }
-      const att = s.attendance || [];
-      for (let i = 0; i < att.length; i++) {
-        if (att[i] === null || att[i] === undefined) continue;
-        const d = new Date(); d.setDate(d.getDate() - (att.length - 1 - i));
-        const dateStr = d.toISOString().split('T')[0];
-        // Don't overwrite Jibble data — only write if no Jibble record exists for this person/date
-        const { data: existing } = await supabase.from('staff_attendance')
-          .select('source').eq('staff_name', s.name).eq('club', s.club).eq('date', dateStr).single();
-        if (existing?.source === 'jibble') continue;
-        await supabase.from('staff_attendance').upsert(
-          { staff_name: s.name, club: s.club, date: dateStr, present: !!att[i], month_year: dateStr.slice(0,7), source: 'whatsapp' },
-          { onConflict: 'staff_name,club,date' });
-      }
+      // Attendance is sourced from Jibble only — not written from WhatsApp analysis
     }
     console.log(`[Cron] Nightly analysis complete — ${parsed.staff?.length||0} staff processed`);
   } catch (e) {
