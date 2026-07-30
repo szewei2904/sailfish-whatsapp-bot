@@ -596,8 +596,12 @@ cron.schedule('0 22 * * *', async () => {
         if (att[i] === null || att[i] === undefined) continue;
         const d = new Date(); d.setDate(d.getDate() - (att.length - 1 - i));
         const dateStr = d.toISOString().split('T')[0];
+        // Don't overwrite Jibble data — only write if no Jibble record exists for this person/date
+        const { data: existing } = await supabase.from('staff_attendance')
+          .select('source').eq('staff_name', s.name).eq('club', s.club).eq('date', dateStr).single();
+        if (existing?.source === 'jibble') continue;
         await supabase.from('staff_attendance').upsert(
-          { staff_name: s.name, club: s.club, date: dateStr, present: !!att[i], month_year: dateStr.slice(0,7) },
+          { staff_name: s.name, club: s.club, date: dateStr, present: !!att[i], month_year: dateStr.slice(0,7), source: 'whatsapp' },
           { onConflict: 'staff_name,club,date' });
       }
     }
