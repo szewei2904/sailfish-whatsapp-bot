@@ -259,8 +259,14 @@ createServer(async (req, res) => {
     try {
       if (activeSock) { try { await activeSock.end(undefined); } catch {} activeSock = null; }
       currentQR = null;
-      rmSync(AUTH_DIR, { recursive: true, force: true });
-      mkdirSync(AUTH_DIR, { recursive: true });
+      // Delete files inside AUTH_DIR but not the directory itself (it may be the disk mount point)
+      const { readdirSync, unlinkSync, rmdirSync, statSync } = await import('fs');
+      try {
+        for (const f of readdirSync(AUTH_DIR)) {
+          const fp = AUTH_DIR + '/' + f;
+          try { statSync(fp).isDirectory() ? rmdirSync(fp, { recursive: true }) : unlinkSync(fp); } catch {}
+        }
+      } catch {}
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:40px">
         <h2>🐟 Auth cleared!</h2>
